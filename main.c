@@ -9,9 +9,11 @@
 #include "str.h"
 #include <errno.h>
 
-#define DEBUG_PRINT 1
+#define DEBUG_PRINT 0
 
 typedef struct Node Node;
+
+String read_entire_file(const char *file_name);
 
 void print_tree(const Node *n, int depth /* 0 */, char edge);
 
@@ -243,10 +245,9 @@ bool write_encoded_data_to_file(const char *file_path, EncodedData *ed)
 
 int main(void)
 {
-  const char *input = "lossless";
-  size_t input_size = strlen(input);
+  String input = read_entire_file("main");
 
-  EncodedData encoded_data = huffman_encode(input, input_size);
+  EncodedData encoded_data = huffman_encode(input.data, input.count);
   printf("Output in bytes: ");
   for (size_t i = 0; i < encoded_data.data.count; i++) {
     if (i != 0) putchar(' ');
@@ -257,6 +258,7 @@ int main(void)
   if (!write_encoded_data_to_file("output.bin", &encoded_data)) return false;
 
   str_free(&encoded_data.data);
+  str_free(&input);
 }
 
 static void print_node(const Node *n)
@@ -274,4 +276,26 @@ void print_tree(const Node *n, int depth, char edge)
   print_node(n);
   printf("\n");
   print_tree(n->left, depth + 1, '0');
+}
+
+String read_entire_file(const char *file_name)
+{
+  FILE *f = fopen(file_name, "rb");
+  if (!f) return STR_INVALID;
+  if (fseek(f, 0, SEEK_END) != 0) return STR_INVALID;
+  long n = ftell(f);
+  if (n < 0) return STR_INVALID;
+  size_t file_size = (size_t)n;
+  if (fseek(f, 0, SEEK_SET) != 0) return STR_INVALID;
+
+  String res = str_new(file_size + 1);
+
+  size_t bytes_read = fread(res.data, 1, file_size, f);
+  if (bytes_read == 0) {
+    if (feof(f) || ferror(f)) return STR_INVALID;
+  }
+  res.count = bytes_read;
+
+  if (fclose(f) != 0) return STR_INVALID;
+  return res;
 }
