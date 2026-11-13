@@ -275,6 +275,16 @@ STRDEF StringView *sv_trim_right(StringView *self);
 STRDEF StringView *sv_trim(StringView *self);
 
 /*
+  Compare two string views (works like `str_cmp`)
+*/
+STRDEF int sv_cmp(StringView lhs, StringView rhs);
+
+/*
+  Check if two string views are equal
+*/
+STRDEF bool sv_eq(StringView lhs, StringView rhs);
+
+/*
   If the functions that returns String or StringView
   has returned one of these, it means there's an error.
 */
@@ -485,6 +495,17 @@ StringView *sv_trim_right(StringView *self)
 StringView *sv_trim(StringView *self)
 {
   return sv_trim_right(sv_trim_left(self));
+}
+
+bool sv_eq(StringView lhs, StringView rhs)
+{
+  return sv_cmp(lhs, rhs) == 0;
+}
+
+int sv_cmp(StringView lhs, StringView rhs)
+{
+  if (lhs.count != rhs.count) return lhs.count - rhs.count;
+  return memcmp(lhs.data, rhs.data, lhs.count);
 }
 
 #endif // STR_IMPLEMENTATION
