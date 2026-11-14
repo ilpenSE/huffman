@@ -80,7 +80,7 @@ size_t calculate_freqs(const char *input, size_t input_size, Freq *freqs)
   return n;
 }
 
-Node *pop_min(Freq *freqs, size_t *fcur, size_t fn, Node **nodes, size_t *ncur, size_t nn)
+Node *pop_min(const Freq *freqs, size_t *fcur, size_t fn, Node **nodes, size_t *ncur, size_t nn)
 {
   if (*fcur < fn && (*ncur >= nn || freqs[*fcur].count <= nodes[*ncur]->data.count)) {
     return node_create(freqs[(*fcur)++]);
@@ -90,7 +90,7 @@ Node *pop_min(Freq *freqs, size_t *fcur, size_t fn, Node **nodes, size_t *ncur, 
 }
 
 // returns root of the tree
-Node *build_tree(Freq *freqs, size_t n, Node **nodes)
+Node *build_tree(const Freq *freqs, size_t n, Node **nodes)
 {
   size_t fcur = 0, ncur = 0, nn = 0;
   if (n == 1) {
@@ -303,8 +303,34 @@ exit:
 
 String huffman_decode(const EncodedData *ed)
 {
-  (void)ed;
-  assert(false && "TODO: huffman_decode");
+  int symbol_count = ed->symbol_count + 1;
+  Node *nodes[256];
+  Node *root = build_tree(ed->freqs, symbol_count, nodes);
+#if DEBUG_PRINT == 1
+  printf("\n[DEBUG] Tree:\n");
+  print_tree(root, 0, ' ');
+#endif
+
+  String res = str_new(ed->orig_count);
+  BitReader br = {.buf=(const bw_byte_t *)ed->data.data, .pos=ed->data.count * 8};
+  size_t cur = 0;
+  Node *next = root;
+
+  while (cur < br.pos) {
+    if (res.count >= ed->orig_count) break;
+
+    if (!next->left && !next->right) {
+      str_append(&res, next->data.ch);
+      next = root;
+    } else {
+      bw_bit_t bit = br_get(&br, cur);
+      if (bit == 0) next = next->left;
+      else next = next->right;
+      cur++;
+    }
+  }
+
+  return res;
 }
 
 const char *shift_argv(int *argc, char ***argv)
