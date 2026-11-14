@@ -221,18 +221,18 @@ STRDEF StringView sv_substr(const String *str, size_t start, size_t end);
 
 /*
   Chops string view `self` from left by amount of `count` parameter.
-  Returns chopped string view.
+  Returns chopped part of `self`.
 */
-STRDEF StringView sv_chop_left(StringView self, size_t count);
+STRDEF StringView sv_chop_left(StringView *self, size_t count);
 
 // Alias for sv_chop_left
 #define sv_remove_prefix sv_chop_left
 
 /*
   Chops the string view `self` from right by amount of `count` parameter.
-  Returns chopped string view.
+  Returns chopped part of `self`.
 */
-STRDEF StringView sv_chop_right(StringView self, size_t count);
+STRDEF StringView sv_chop_right(StringView *self, size_t count);
 
 // Alias for sv_chop_right
 #define sv_remove_suffix sv_chop_right
@@ -409,16 +409,21 @@ StringView sv_substr(const String *str, size_t start, size_t end)
   return (StringView){str->data + start, end - start};
 }
 
-StringView sv_chop_left(StringView self, size_t count)
+StringView sv_chop_left(StringView *self, size_t count)
 {
-  if (self.count < count) return SV_INVALID;
-  return (StringView){.data=self.data + count, .count=self.count - count};
+  if (self->count < count) return SV_INVALID;
+  StringView r = {.data=self->data, .count=count};
+  self->data += count;
+  self->count -= count;
+  return r;
 }
 
-StringView sv_chop_right(StringView self, size_t count)
+StringView sv_chop_right(StringView *self, size_t count)
 {
-  if (self.count < count) return SV_INVALID;
-  return (StringView){.data=self.data, .count=self.count - count};
+  if (self->count < count) return SV_INVALID;
+  StringView r = {.data=self->data + (self->count - count), .count=count};
+  self->count -= count;
+  return r;
 }
 
 StringView sv_chop_until_char(StringView *self, char delim)
