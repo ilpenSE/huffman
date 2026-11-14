@@ -260,7 +260,7 @@ EncodedData parse_encoded_data_from_file(StringView content)
     fprintf(stderr, "ERROR: Failed to parse symbol count!\n");
     goto exit;
   }
-  ret.symbol_count = (uint8_t)(*symcount_sv.data);
+  memcpy(&ret.symbol_count, symcount_sv.data, 1);
 
   // Freq array parsing
   for (size_t i = 0; i < ret.symbol_count + 1; i++) {
@@ -277,7 +277,7 @@ EncodedData parse_encoded_data_from_file(StringView content)
     }
 
     char ch = *freq_ch_sv.data;
-    int count = *((int *)freq_count_sv.data);
+    int count; memcpy(&count, freq_count_sv.data, 4);
     ret.freqs[i] = (Freq){.ch=ch, .count=count};
   }
 
@@ -287,7 +287,7 @@ EncodedData parse_encoded_data_from_file(StringView content)
     fprintf(stderr, "ERROR: Failed to parse original count!\n");
     goto exit;
   }
-  ret.orig_count = *((size_t *)orig_len_sv.data);
+  memcpy(&ret.orig_count, orig_len_sv.data, 8);
 
   // Bit data parsing
   String bit_data = str_from_sv(content);
@@ -330,6 +330,7 @@ String huffman_decode(const EncodedData *ed)
     }
   }
 
+  free_tree(root);
   return res;
 }
 
