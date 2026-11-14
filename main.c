@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,6 +15,7 @@
 typedef struct Node Node;
 
 String read_entire_file(const char *file_name);
+size_t write_entire_file(const char *file_name, const String *content);
 
 void print_tree(const Node *n, int depth /* 0 */, char edge);
 
@@ -139,7 +141,7 @@ void free_tree(Node *root)
 EncodedData huffman_encode(const char *input, size_t input_size)
 {
 #if DEBUG_PRINT == 1
-  printf("Input: '%.*s' (%zu bits)\n", (int)input_size, input, input_size*8);
+  printf("[DEBUG] Input: '%.*s' (%zu bits)\n", (int)input_size, input, input_size*8);
 #endif
 
   // Calculating frequencies
@@ -186,7 +188,7 @@ EncodedData huffman_encode(const char *input, size_t input_size)
 
 #if DEBUG_PRINT == 1
   // Print output in binary
-  printf("Output: ");
+  printf("[DEBUG] Output: ");
   for (size_t i = 0; i < bw.pos; i++) {
     printf("%d", bw_get(&bw, i));
   }
@@ -196,9 +198,9 @@ EncodedData huffman_encode(const char *input, size_t input_size)
 
   free_tree(root);
   String str = {.data=(char *)bw.buf, .count=bw_count(&bw), .capacity=bw.capacity};
-  EncodedData ret = {.data=str, .orig_count=input_size, .symbol_count=(uint8_t)(nfreqs-1)};
-  memcpy(ret.freqs, freqs, nfreqs * sizeof(Freq));
-  return ret;
+  EncodedData ed = {.data=str, .orig_count=input_size, .symbol_count=(uint8_t)(nfreqs-1)};
+  memcpy(ed.freqs, freqs, nfreqs * sizeof(Freq));
+  return ed;
 }
 
 /*
@@ -209,12 +211,12 @@ EncodedData huffman_encode(const char *input, size_t input_size)
   [original length]  8 bytes (size_t)
   [bit data...]
  */
-bool write_encoded_data_to_file(const char *file_path, EncodedData *ed)
+size_t write_encoded_data_to_file(const char *file_path, EncodedData *ed)
 {
   FILE *f = fopen(file_path, "wb");
   if (!f) {
     fprintf(stderr, "ERROR: Failed to open file: %s: %s\n", file_path, strerror(errno));
-    return false;
+    return 0;
   }
 
   size_t written = 0;
@@ -225,7 +227,6 @@ bool write_encoded_data_to_file(const char *file_path, EncodedData *ed)
 
   for (size_t i = 0; i < (size_t)ed->symbol_count+1; i++) {
     Freq f = ed->freqs[i];
-    printf("%c -> %d\n", f.ch, f.count);
     str_append(&buffer, f.ch);
     str_concat(&buffer, (StringView){.data=(const char *)&f.count, .count=sizeof(f.count)});
   }
@@ -239,26 +240,170 @@ bool write_encoded_data_to_file(const char *file_path, EncodedData *ed)
   written += fwrite(ed->data.data, 1, ed->data.count, f);
 
   fclose(f);
-  printf("Wrote %zu bytes to %s\n", written, file_path);
-  return true;
+  return written;
 }
 
-int main(void)
+EncodedData parse_encoded_data_from_file(StringView content)
 {
-  String input = read_entire_file("main");
+  EncodedData ret = {.data=STR_INVALID};
 
-  EncodedData encoded_data = huffman_encode(input.data, input.count);
-  printf("Output in bytes: ");
-  for (size_t i = 0; i < encoded_data.data.count; i++) {
-    if (i != 0) putchar(' ');
-    printf("%02X", (unsigned char)encoded_data.data.data[i]);
+  // Magic parsing
+  StringView magic = sv_chop_left(&content, 4);
+  if (!sv_eq(magic, SVL("\0ET1"))) {
+    fprintf(stderr, "ERROR: Magic doesn't match!\n");
+    goto exit;
   }
-  putchar('\n');
 
-  if (!write_encoded_data_to_file("output.bin", &encoded_data)) return false;
+  // Symbol count parsing
+  StringView symcount_sv = sv_chop_left(&content, 1);
+  if (SV_ISINVALID(symcount_sv)) {
+    fprintf(stderr, "ERROR: Failed to parse symbol count!\n");
+    goto exit;
+  }
+  ret.symbol_count = (uint8_t)(*symcount_sv.data);
 
-  str_free(&encoded_data.data);
-  str_free(&input);
+  // Freq array parsing
+  for (size_t i = 0; i < ret.symbol_count + 1; i++) {
+    StringView freq_ch_sv = sv_chop_left(&content, 1);
+    if (SV_ISINVALID(freq_ch_sv)) {
+      fprintf(stderr, "ERROR: Failed to parse character of freq (%zu)\n", i);
+      goto exit;
+    }
+
+    StringView freq_count_sv = sv_chop_left(&content, 4);
+    if (SV_ISINVALID(freq_count_sv)) {
+      fprintf(stderr, "ERROR: Failed to parse count of freq (%zu)\n", i);
+      goto exit;
+    }
+
+    char ch = *freq_ch_sv.data;
+    int count = *((int *)freq_count_sv.data);
+    ret.freqs[i] = (Freq){.ch=ch, .count=count};
+  }
+
+  // Original count parsing
+  StringView orig_len_sv = sv_chop_left(&content, 8);
+  if (SV_ISINVALID(orig_len_sv)) {
+    fprintf(stderr, "ERROR: Failed to parse original count!\n");
+    goto exit;
+  }
+  ret.orig_count = *((size_t *)orig_len_sv.data);
+
+  // Bit data parsing
+  String bit_data = str_from_sv(content);
+  if (STR_ISINVALID(bit_data)) {
+    fprintf(stderr, "ERROR: Failed to parse bit data!\n");
+    goto exit;
+  }
+  ret.data = bit_data;
+
+exit:
+  return ret;
+}
+
+String huffman_decode(const EncodedData *ed)
+{
+  (void)ed;
+  assert(false && "TODO: huffman_decode");
+}
+
+const char *shift_argv(int *argc, char ***argv)
+{ return *argc == 0 ? NULL : ((*argc)--, *(*argv)++); }
+
+void print_usage(const char *program_name, FILE *f)
+{
+  fprintf(f, "Usage: %s <input_file> [...OPTIONS]\n", program_name);
+  fprintf(f, "Options:\n");
+  fprintf(f, "    --encode | -e: Do encoding. (By default)\n");
+  fprintf(f, "    --decode | -d: Do decoding.\n");
+  fprintf(f, "    --output | -o <file_path>: Specify output file of operation. "
+    "('output.bin' or 'output.txt' depending on operation by default)\n");
+  fprintf(f, "    --help | -h: Print this help message.\n");
+}
+
+int main(int argc, char **argv)
+{
+  const char *program_name = shift_argv(&argc, &argv);
+  bool encode = true;
+  const char *input_file = NULL;
+  const char *output_file = NULL;
+
+  const char *arg_cstr;
+  while ((arg_cstr = shift_argv(&argc, &argv)) != NULL) {
+    StringView arg = SV(arg_cstr);
+    if (sv_eq(arg, SVL("--help")) || sv_eq(arg, SVL("-h"))) {
+      print_usage(program_name, stdout);
+      return 0;
+    } else if (sv_eq(arg, SVL("-e")) || sv_eq(arg, SVL("--encode"))) {
+      encode = true;
+    } else if (sv_eq(arg, SVL("-d")) || sv_eq(arg, SVL("--decode"))) {
+      encode = false;
+    } else if (sv_eq(arg, SVL("-o")) || sv_eq(arg, SVL("--output"))) {
+      const char *oarg = shift_argv(&argc, &argv);
+      if (!oarg) {
+        fprintf(stderr, "ERROR: Output file is required!\n");
+        print_usage(program_name, stderr);
+        return 1;
+      }
+      output_file = oarg;
+    } else if (*arg.data == '-') {
+      fprintf(stderr, "ERROR: Unrecognized option: "SV_FMT"\n", SV_ARG(arg));
+      print_usage(program_name, stderr);
+      return 1;
+    } else {
+      if (input_file != NULL) {
+        fprintf(stderr, "ERROR: Multiple input files has been passed, there can be only one!\n");
+        fprintf(stderr, "       Previous: %s, now: "SV_FMT"\n", input_file, SV_ARG(arg));
+        return 1;
+      }
+      input_file = arg_cstr;
+    }
+  }
+
+  if (!output_file) {
+    output_file = encode ? "output.bin" : "output.txt";
+  }
+
+  if (!input_file) {
+    fprintf(stderr, "ERROR: No input files.\n");
+    print_usage(program_name, stderr);
+    return 1;
+  }
+
+  String input = read_entire_file(input_file);
+  if (STR_ISINVALID(input)) {
+    fprintf(stderr, "ERROR: Failed to read file: %s: %s\n", input_file, strerror(errno));
+    return 1;
+  }
+  size_t orig_bytes = input.count;
+
+  if (encode) {
+    EncodedData ed = huffman_encode(input.data, input.count);
+    str_free(&input);
+
+    size_t written = write_encoded_data_to_file(output_file, &ed);
+    printf("%s (%zu bytes) encoded into %s (%zu bytes)\n", input_file, orig_bytes, output_file, written);
+    str_free(&ed.data);
+  } else {
+    EncodedData ed = parse_encoded_data_from_file(SVS(input));
+    str_free(&input);
+    if (STR_ISINVALID(ed.data)) {
+      fprintf(stderr, "ERROR: Could not parse encoded data from file!\n");
+      return 1;
+    }
+    String decoded = huffman_decode(&ed);
+    str_free(&ed.data);
+
+    size_t w = write_entire_file(output_file, &decoded);
+    if (w == 0) {
+      fprintf(stderr, "ERROR: Could not write to file: %s: %s\n", output_file, strerror(errno));
+      str_free(&decoded);
+      return 1;
+    }
+    printf("%s (%zu bytes) decoded into %s (%zu bytes)\n", input_file, orig_bytes, output_file, w);
+
+    str_free(&decoded);
+  }
 }
 
 static void print_node(const Node *n)
@@ -276,6 +421,15 @@ void print_tree(const Node *n, int depth, char edge)
   print_node(n);
   printf("\n");
   print_tree(n->left, depth + 1, '0');
+}
+
+size_t write_entire_file(const char *file_name, const String *content)
+{
+  FILE *f = fopen(file_name, "wb");
+  if (!f) return 0;
+  size_t w = fwrite(content->data, sizeof(*content->data), content->count, f);
+  fclose(f);
+  return w;
 }
 
 String read_entire_file(const char *file_name)
@@ -296,6 +450,6 @@ String read_entire_file(const char *file_name)
   }
   res.count = bytes_read;
 
-  if (fclose(f) != 0) return STR_INVALID;
+  fclose(f);
   return res;
 }
